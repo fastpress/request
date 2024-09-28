@@ -2,57 +2,277 @@
 
 declare(strict_types=1);
 
-/**
- * HTTP request object.
- *
- * PHP version 7.0
- *
- * @category   fastpress
- * @package    Http
- * @subpackage Request
- *
- * @author     https://github.com/samayo
- * @copyright  Copyright (c) samayo
- * @license    http://www.opensource.org/licenses/mit-license.html  MIT License
- *
- * @version    0.1.0
- */
-
 namespace Fastpress\Http;
 
 /**
- * HTTP request object.
+ * Represents an immutable HTTP request and provides methods to access various request parameters such as GET, POST,
+ * headers, cookies, server variables, and more.
  *
- * This class represents an HTTP request and provides methods to access various request parameters such as GET, POST,
- * server variables, and more.
+ * This class follows best practices for handling HTTP requests, including support for JSON input, file uploads,
+ * and security considerations.
  *
- * @category   fastpress
- * @package    Http
- * @subpackage Request
- *
- * @author     https://github.com/samayo
+ * @author
+ * @license    http://www.opensource.org/licenses/mit-license.html  MIT License
+ * @version    1.0.0
  */
-class Request implements \ArrayAccess
+class Request
 {
-    protected array $get = [];
-    protected array $post = [];
-    protected array $server = [];
-    protected array $cookie = [];
-/**
-     * Constructor to initialize the request object.
-     * It populates the internal arrays with values from superglobal arrays ($_GET, $_POST, $_SERVER, $_COOKIE).
+    /**
+     * @var array
+     */
+    private $get;
+
+    /**
+     * @var array
+     */
+    private $post;
+
+    /**
+     * @var array
+     */
+    private $server;
+
+    /**
+     * @var array
+     */
+    private $cookie;
+
+    /**
+     * @var array
+     */
+    private $files;
+
+    /**
+     * @var array
+     */
+    private $headers;
+
+    /**
+     * @var string|null
+     */
+    private $rawInput;
+
+    /**
+     * @var array|null
+     */
+    private $parsedJson;
+
+    /**
+     * Initializes the request object with superglobal arrays or custom arrays.
      *
      * @param array|null $get
      * @param array|null $post
      * @param array|null $server
      * @param array|null $cookie
+     * @param array|null $files
+     * @param array|null $headers
      */
-    public function __construct(array $get = null, array $post = null, array $server = null, array $cookie = null)
-    {
+    public function __construct(
+        array $get = null,
+        array $post = null,
+        array $server = null,
+        array $cookie = null,
+        array $files = null,
+        array $headers = null
+    ) {
         $this->get = $get ?? $_GET;
         $this->post = $post ?? $_POST;
         $this->server = $server ?? $_SERVER;
         $this->cookie = $cookie ?? $_COOKIE;
+        $this->files = $files ?? $_FILES;
+        $this->headers = $headers ?? $this->parseHeaders();
+        $this->rawInput = null;
+        $this->parsedJson = null;
+    }
+
+    /**
+     * Parses HTTP request headers.
+     *
+     * @return array
+     */
+    private function parseHeaders()
+    {
+        $headers = [];
+
+        if (function_exists('getallheaders')) {
+            $headers = getallheaders();
+        } else {
+            foreach ($this->server as $name => $value) {
+                if (strpos($name, 'HTTP_') === 0) {
+                    $headerName = str_replace('_', '-', substr($name, 5));
+                    $headers[$headerName] = $value;
+                }
+            }
+        }
+
+        return $headers;
+    }
+
+    /**
+     * Retrieves a value from the GET parameters.
+     *
+     * @param string      $key
+     * @param mixed       $default Default value to return if key does not exist.
+     * @param int|null    $filter  FILTER_* constant.
+     *
+     * @return mixed
+     */
+    public function get($key, $default = null, $filter = null)
+    {
+        return $this->filter($this->get, $key, $default, $filter);
+    }
+
+    /**
+     * Retrieves a value from the POST parameters.
+     *
+     * @param string      $key
+     * @param mixed       $default Default value to return if key does not exist.
+     * @param int|null    $filter  FILTER_* constant.
+     *
+     * @return mixed
+     */
+    public function post($key, $default = null, $filter = null)
+    {
+        return $this->filter($this->post, $key, $default, $filter);
+    }
+
+    /**
+     * Retrieves a value from the COOKIE parameters.
+     *
+     * @param string      $key
+     * @param mixed       $default Default value to return if key does not exist.
+     * @param int|null    $filter  FILTER_* constant.
+     *
+     * @return mixed
+     */
+    public function cookie($key, $default = null, $filter = null)
+    {
+        return $this->filter($this->cookie, $key, $default, $filter);
+    }
+
+    /**
+     * Retrieves a value from the SERVER parameters.
+     *
+     * @param string      $key
+     * @param mixed       $default Default value to return if key does not exist.
+     *
+     * @return mixed
+     */
+    public function server($key, $default = null)
+    {
+        return isset($this->server[$key]) ? $this->server[$key] : $default;
+    }
+
+    /**
+     * Retrieves a value from the uploaded files.
+     *
+     * @param string $key
+     *
+     * @return array|null
+     */
+    public function file($key)
+    {
+        return isset($this->files[$key]) ? $this->files[$key] : null;
+    }
+
+    /**
+     * Retrieves a header value.
+     *
+     * @param string $name
+     * @param mixed  $default Default value to return if header does not exist.
+     *
+     * @return string|null
+     */
+    public function header($name, $default = null)
+    {
+        $normalized = str_replace('-', '_', strtoupper($name));
+        return isset($this->headers[$normalized]) ? $this->headers[$normalized] : $default;
+    }
+
+    /**
+     * Retrieves all headers.
+     *
+     * @return array
+     */
+    public function getHeaders()
+    {
+        return $this->headers;
+    }
+
+    /**
+     * Retrieves raw input data.
+     *
+     * @return string
+     */
+    public function getRawInput()
+    {
+        if ($this->rawInput === null) {
+            $this->rawInput = file_get_contents('php://input');
+        }
+        return $this->rawInput;
+    }
+
+    /**
+     * Retrieves parsed JSON input data.
+     *
+     * @param bool $assoc Whether to return the result as an associative array.
+     *
+     * @return mixed
+     */
+    public function getJson($assoc = true)
+    {
+        if ($this->parsedJson === null) {
+            $input = $this->getRawInput();
+            $this->parsedJson = json_decode($input, $assoc);
+        }
+        return $this->parsedJson;
+    }
+
+    /**
+     * Retrieves a value from the parsed JSON input data.
+     *
+     * @param string   $key
+     * @param mixed    $default Default value to return if key does not exist.
+     *
+     * @return mixed
+     */
+    public function json($key, $default = null)
+    {
+        $data = $this->getJson();
+        return isset($data[$key]) ? $data[$key] : $default;
+    }
+
+    /**
+     * Retrieves a value from any input source (POST, GET, JSON).
+     *
+     * @param string   $key
+     * @param mixed    $default Default value to return if key does not exist.
+     * @param int|null $filter  FILTER_* constant.
+     *
+     * @return mixed
+     */
+    public function input($key, $default = null, $filter = null)
+    {
+        if ($this->post($key, null) !== null) {
+            return $this->post($key, $default, $filter);
+        }
+        if ($this->get($key, null) !== null) {
+            return $this->get($key, $default, $filter);
+        }
+        if ($this->json($key, null) !== null) {
+            return $this->json($key, $default);
+        }
+        return $default;
+    }
+
+    /**
+     * Gets the request method.
+     *
+     * @return string
+     */
+    public function getMethod()
+    {
+        return $this->server('REQUEST_METHOD', 'GET');
     }
 
     /**
@@ -60,7 +280,7 @@ class Request implements \ArrayAccess
      *
      * @return bool
      */
-    public function isGet(): bool
+    public function isGet()
     {
         return $this->getMethod() === 'GET';
     }
@@ -70,7 +290,7 @@ class Request implements \ArrayAccess
      *
      * @return bool
      */
-    public function isPost(): bool
+    public function isPost()
     {
         return $this->getMethod() === 'POST';
     }
@@ -80,7 +300,7 @@ class Request implements \ArrayAccess
      *
      * @return bool
      */
-    public function isPut(): bool
+    public function isPut()
     {
         return $this->getMethod() === 'PUT';
     }
@@ -90,209 +310,244 @@ class Request implements \ArrayAccess
      *
      * @return bool
      */
-    public function isDelete(): bool
+    public function isDelete()
     {
         return $this->getMethod() === 'DELETE';
     }
 
     /**
-     * Fetches a value from the GET array.
+     * Checks if the request method is PATCH.
      *
-     * @param string $var
-     * @param mixed  $filter
-     *
-     * @return mixed|null Returns the filtered value if found, otherwise null.
+     * @return bool
      */
-    public function get(string $var, $filter = null): mixed
+    public function isPatch()
     {
-        return $this->filter($this->get, $var, $filter);
+        return $this->getMethod() === 'PATCH';
     }
 
     /**
-     * Fetches a value from the POST array.
+     * Checks if the request method is OPTIONS.
      *
-     * @param string $var
-     * @param mixed  $filter
-     *
-     * @return mixed|null Returns the filtered value if found, otherwise null.
+     * @return bool
      */
-    public function post(string $var, $filter = null): mixed
+    public function isOptions()
     {
-        return $this->filter($this->post, $var, $filter);
+        return $this->getMethod() === 'OPTIONS';
     }
 
     /**
-     * Deletes a value from the POST array.
+     * Checks if the request method is HEAD.
      *
-     * @param string $var
-     * @param mixed  $filter
-     *
-     * @return mixed|null Returns the filtered value if found, otherwise null.
+     * @return bool
      */
-    public function delete(string $var, $filter = null): mixed
+    public function isHead()
     {
-        return $this->filter('DELETE', $var, $filter);
+        return $this->getMethod() === 'HEAD';
     }
 
     /**
-     * Fetches a value from the SERVER array.
+     * Checks if the connection is secure (HTTPS).
      *
-     * @param string $var
-     * @param mixed  $filter
-     *
-     * @return mixed|null Returns the filtered value if found, otherwise null.
+     * @return bool
      */
-    public function server(string $var, $filter = null): mixed
+    public function isSecure()
     {
-        return $this->filter($this->server, $var, $filter);
+        return (!empty($this->server('HTTPS')) && $this->server('HTTPS') !== 'off')
+            || $this->server('SERVER_PORT') == 443;
     }
 
     /**
-     * Gets the current URI.
+     * Checks if the request is an XMLHttpRequest.
      *
-     * @return string|null Returns the current URI if found, otherwise null.
+     * @return bool
      */
-    public function getUri(): ?string
+    public function isXhr()
     {
-        return $this->filter($this->server, 'REQUEST_URI');
+        return strtolower($this->header('X-Requested-With', '')) === 'xmlhttprequest';
     }
 
     /**
-     * Gets the HTTP referer.
+     * Gets the request URI.
      *
-     * @return string|null Returns the HTTP referer if found, otherwise null.
+     * @return string
      */
-    public function getReferer(): ?string
+    public function getUri()
     {
-        return $this->filter($this->server, 'HTTP_REFERER');
+        return $this->server('REQUEST_URI', '/');
     }
 
     /**
-     * Gets the request method type.
+     * Gets the current URL.
      *
-     * @return string|null Returns the request method type if found, otherwise null.
+     * @return string
      */
-    public function getMethod(): ?string
+    public function getUrl()
     {
-        return $this->filter($this->server, 'REQUEST_METHOD');
+        $scheme = $this->isSecure() ? 'https' : 'http';
+        $host = $this->server('HTTP_HOST', '');
+        $uri = $this->getUri();
+        return $scheme . '://' . $host . $uri;
     }
 
     /**
-     * Checks if the connection is secure.
+     * Parses and returns the query string parameters.
      *
-     * @return bool Returns true if the connection is secure, otherwise false.
+     * @return array
      */
-    public function isSecure(): bool
+    public function getQueryParams()
     {
-        return array_key_exists('HTTPS', $this->server)
-            && $this->server['HTTPS'] !== 'off';
+        $query = parse_url($this->getUrl(), PHP_URL_QUERY);
+        parse_str($query, $params);
+        return $params;
     }
 
     /**
-     * Checks if the connection is made with XMLHttpRequest.
+     * Filters a value using filter_var().
      *
-     * @return bool Returns true if connection is made with XMLHttpRequest, otherwise false.
+     * @param array    $input
+     * @param string   $key
+     * @param mixed    $default
+     * @param int|null $filter
+     *
+     * @return mixed
      */
-    public function isXhr(): bool
+    private function filter(array $input, $key, $default, $filter)
     {
-        return $this->filter($this->server, 'HTTP_X_REQUESTED_WITH') === 'XMLHttpRequest';
-    }
-
-    /**
-     * A utility function to filter values using filter_var().
-     *
-     * @param array  $input
-     * @param string $var
-     * @param mixed  $filter
-     *
-     * @return mixed|null Returns the filtered value if found, otherwise null.
-     */
-    protected function filter(array $input, string $var, $filter = null): mixed
-    {
-        $value = $input[$var] ?? false;
-        if (!$filter) {
-            return $value;
+        if (!isset($input[$key])) {
+            return $default;
         }
-
-        return filter_var($value, $filter);
+        $value = $input[$key];
+        if ($filter !== null) {
+            $value = filter_var($value, $filter);
+        }
+        return $value;
     }
 
     /**
-     * Returns superglobal arrays.
+     * Validates input data based on the provided rules.
      *
-     * @return array Returns the superglobal arrays.
+     * @param array $rules An associative array of validation rules.
+     *
+     * @return array An array of validation errors.
      */
-    public function requestGlobals(): array
+    public function validate(array $rules)
     {
-        return [
-            'get' => $this->get,
-            'post' => $this->post,
-            'server' => $this->server,
+        $errors = [];
+        foreach ($rules as $field => $rule) {
+            $value = $this->input($field);
+            if ($rule === 'required' && ($value === null || $value === '')) {
+                $errors[$field] = 'The ' . $field . ' field is required.';
+            }
+            // Additional validation rules can be implemented here.
+        }
+        return $errors;
+    }
+
+    /**
+     * Returns all input data from GET, POST, and JSON.
+     *
+     * @return array
+     */
+    public function all()
+    {
+        return array_merge($this->get, $this->post, $this->getJson());
+    }
+
+    /**
+     * Returns the client's IP address.
+     *
+     * @return string|null
+     */
+    public function getClientIp()
+    {
+        $ipKeys = [
+            'HTTP_CLIENT_IP',
+            'HTTP_X_FORWARDED_FOR',
+            'REMOTE_ADDR',
         ];
-    }
-
-    /**
-     * Builds a URL.
-     *
-     * @return mixed Returns the parsed URL.
-     */
-    public function build_url()
-    {
-        return  parse_url($this->server('REQUEST_SCHEME') . '://' .
-            $this->server('SERVER_NAME') .
-            $this->server('REQUEST_URI'));
-    }
-
-    /**
-     * Call class methods from array context.
-     *
-     * @param mixed $offset
-     *
-     * @return mixed Returns the result of the called method.
-     */
-    public function offsetGet($offset): mixed
-    {
-        if (in_array($offset, ['isGet', 'isPut', 'isPost', 'isDelete', 'isXhr', 'isSecure'])) {
-            return $this->$offset();
+        foreach ($ipKeys as $key) {
+            $ip = $this->server($key);
+            if ($ip !== null) {
+                return $ip;
+            }
         }
+        return null;
     }
 
     /**
-     * Set values.
+     * Returns the requested content type.
      *
-     * @param mixed $offset
-     * @param mixed $value
-     *
-     * @return void
+     * @return string|null
      */
-    public function offsetSet($offset, $value): void
+    public function getContentType()
     {
-        // Implementation for setting values.
-        // You can add your logic here if necessary.
+        return $this->server('CONTENT_TYPE');
     }
 
     /**
-     * Checks if an offset exists.
+     * Checks if the content type is JSON.
      *
-     * @param mixed $offset
-     *
-     * @return bool Returns true if the offset exists, otherwise false.
+     * @return bool
      */
-    public function offsetExists($offset): bool
+    public function isJson()
     {
-        return isset($this->$offset);
+        $contentType = $this->getContentType();
+        return strpos($contentType, 'application/json') !== false;
     }
 
     /**
-     * Unsets an offset.
+     * Generates a CSRF token and stores it in the session.
      *
-     * @param mixed $offset
-     *
-     * @return void
+     * @return string
      */
-    public function offsetUnset($offset): void
+    public function getCsrfToken()
     {
-        // Implementation for unsetting offset.
-        // You can add your logic here if necessary.
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+        if (!isset($_SESSION['_csrf_token'])) {
+            $_SESSION['_csrf_token'] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['_csrf_token'];
+    }
+
+    /**
+     * Validates the provided CSRF token against the session token.
+     *
+     * @param string $token
+     *
+     * @return bool
+     */
+    public function validateCsrfToken($token)
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+        return isset($_SESSION['_csrf_token']) && hash_equals($_SESSION['_csrf_token'], $token);
+    }
+
+    /**
+     * Magic method to prevent setting properties.
+     *
+     * @param string $name
+     * @param mixed  $value
+     *
+     * @throws \LogicException
+     */
+    public function __set($name, $value)
+    {
+        throw new \LogicException('Cannot modify immutable Request object.');
+    }
+
+    /**
+     * Magic method to prevent unsetting properties.
+     *
+     * @param string $name
+     *
+     * @throws \LogicException
+     */
+    public function __unset($name)
+    {
+        throw new \LogicException('Cannot modify immutable Request object.');
     }
 }
