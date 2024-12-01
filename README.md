@@ -27,24 +27,189 @@ use Fastpress\Http\Request;
 
 $request = new Request();
 ```
-You can then access various parts of the HTTP request:
-```php
-// Get a value from the GET array
-$value = $request->get('key');
+## Methods
 
-// Check if the request method is POST
-if ($request->isPost()) {
-    // Handle POST request
+### `validateCsrf(): bool`
+
+Validates the CSRF token.
+
+```php
+$isValid = $request->validateCsrf();
+```
+
+* Returns: true if the CSRF token is valid, otherwise throws a RuntimeException.
+```php
+generateCsrfToken(): string
+```
+* Generates a new CSRF token and stores it in the session.
+
+```php
+$token = $request->generateCsrfToken();
+```
+
+Returns: The generated CSRF token.
+### `input(string $key, mixed $default = null, bool $sanitize = true): mixed`
+Retrieves an input value from GET, POST, or JSON data.
+
+```php
+$name = $request->input('name');
+$age = $request->input('age', 25);
+$rawInput = $request->input('comment', null, false); 
+```
+
+$key: The input key.
+$default: Optional. The default value to return if the key is not found.
+$sanitize: Optional. Whether to sanitize the value. Defaults to true.
+Returns: The input value.
+### `file(string $key): ?array`
+Retrieves an uploaded file.
+
+```php
+$uploadedFile = $request->file('image');
+```
+
+$key: The file key.
+Returns: An array containing file information, or null if the file is not found.
+```php
+hasFile(string $key): bool
+```
+Checks if an uploaded file exists and was uploaded successfully.
+
+```php
+if ($request->hasFile('document')) {
+  // Process the file
 }
 ```
 
-## Contributing
-Contributions are welcome! Please feel free to submit a pull request or open issues to improve the library.
+$key: The file key.
+Returns: true if the file exists and was uploaded successfully, false otherwise.
+### `isJson(): bool`
+Checks if the request content type is JSON.
+
+```php
+if ($request->isJson()) {
+  // Process the JSON data
+}
+```
+
+Returns: true if the content type is JSON, false otherwise.
+getMethod(): string
+Gets the HTTP request method.
+
+```php
+$method = $request->getMethod(); 
+```
+
+Returns: The HTTP request method.
+getIp(): ?string
+Gets the client's IP address.
+
+```php
+$ipAddress = $request->getIp();
+```
+
+Returns: The client's IP address, or null if it cannot be determined.
+accepts(string $contentType): bool
+Checks if the client accepts the given content type.
+
+```php
+if ($request->accepts('application/json')) {
+  // Send JSON response
+}
+```
+
+$contentType: The content type to check.
+Returns: true if the client accepts the content type, false otherwise.
+header(string $key, mixed $default = null): mixed
+Retrieves a header value.
+
+PHP
+$authToken = $request->header('Authorization');
+```
+
+$key: The header key.
+$default: Optional. The default value to return if the header is not found.
+Returns: The header value.
+get(string $key, mixed $default = null): mixed
+Retrieves a GET parameter.
+
+```php
+$page = $request->get('page', 1);
+```
+
+$key: The GET parameter key.
+$default: Optional. The default value to return if the key is not found.
+Returns: The GET parameter value.
+post(string $key, mixed $default = null): mixed
+Retrieves a POST parameter.
+
+```php
+$email = $request->post('email');
+```
+
+$key: The POST parameter key.
+$default: Optional. The default value to return if the key is not found.
+Returns: The POST parameter value.
+json(string $key, mixed $default = null): mixed
+Retrieves a value from the parsed JSON request body.
+
+```php
+$userId = $request->json('user_id');
+```
+
+$key: The JSON key.
+$default: Optional. The default value to return if the key is not found.
+Returns: The JSON value.
+getBody(): string
+Gets the raw request body.
+
+```php
+$requestBody = $request->getBody();
+```
+
+Returns: The raw request body.
+validate(array $rules): array
+Validates the request data against the given rules.
+
+```php
+$rules = [
+  'name' => 'required|min:3',
+  'email' => 'required|email',
+];
+
+$errors = $request->validate($rules);
+
+if (!empty($errors)) {
+  // Handle validation errors
+}
+```
+
+$rules: An array of validation rules.
+Returns: An array of validation errors.
+setUrlParams(array $params): void
+Sets the URL parameters.
+
+```php
+$request->setUrlParams(['id' => 10, 'slug' => 'my-article']);
+```
+
+$params: An array of URL parameters.
+param(string $key, mixed $default = null): mixed
+Retrieves a URL parameter.
+
+```php
+$articleId = $request->param('id');
+```
 
 
-## License
-This library is open-sourced software licensed under the MIT license.
+$key: The URL parameter key.
+$default: Optional. The default value to return if the key is not found.
+Returns: The URL parameter value.
+all(): array
+Gets all input data (GET, POST, JSON).
 
-## Support
-If you encounter any issues or have questions, please file them in the issues section on GitHub.
+```php
+$allInputData = $request->all();
+```
 
+Returns: An array containing all input data.

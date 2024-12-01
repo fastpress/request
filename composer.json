@@ -2,6 +2,7 @@
     "name": "fastpress/request",
     "description": "A powerful and flexible HTTP request handling library for PHP, optimized for use with the Fastpress framework. Provides an easy-to-use interface for accessing request data and handling common request operations.",
     "type": "library",
+    "version": "0.1.2",
     "require": {
         "php": "^7.4 || ^8.0"
     },
@@ -24,7 +25,7 @@
     "license": "MIT",
     "authors": [
         {
-            "name": "Samson Daniel",
+            "name": "Samayo",
             "email": "samayo@pm.me"
         }
     ],
