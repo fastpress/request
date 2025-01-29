@@ -108,6 +108,17 @@ class Request
     }
 
     /**
+     * Check if a cookie with the given name exists.
+     *
+     * @param string $name Cookie name
+     * @return bool
+     */
+    public function hasCookie(string $name): bool
+    {
+        return isset($_COOKIE[$name]);
+    }
+
+    /**
      * Validate CSRF token.
      *
      * @return bool
@@ -147,15 +158,37 @@ class Request
      */
     public function input(string $key, mixed $default = null, bool $sanitize = true): mixed
     {
-        if ($this->isPost()) {
-            $value = $this->post($key, $default);
-        } elseif ($this->isJson()) {
-            $value = $this->json($key, $default);
-        } else {
-            $value = $this->get($key, $default);
-        }
+        $value = match(true) {
+            $this->isPost() => $this->post($key, $default),
+            $this->isJson() => $this->json($key, $default),
+            default => $this->get($key, $default)
+        };
 
         return $sanitize ? $this->sanitize($value) : $value;
+    }
+
+    /**
+     * Is Ajax request.
+     */
+    public function isAjax(): bool {
+        return $this->header('X-Requested-With') === 'XMLHttpRequest';
+    }
+
+    /**
+     * Get the request URI.
+     * 
+     */
+    public function getScheme(): string
+    {
+        return $this->server['REQUEST_SCHEME'] ?? 'http';
+    }
+
+    /**
+     * Get Host.
+     */
+    public function getHost(): string 
+    {
+        return $this->server['HTTP_HOST'] ?? $this->server['SERVER_NAME'];
     }
 
     /**
@@ -256,10 +289,10 @@ class Request
      *
      * @return string|null
      */
-    public function getIp(): string
+    public function getIp(): ?string
     {
         $keys = ['HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'];
-
+        
         foreach ($keys as $key) {
             $ip = $this->server[$key] ?? null;
             if ($ip && filter_var(
@@ -270,11 +303,9 @@ class Request
                 return $ip;
             }
         }
-
-        // Fallback to a default IP if none of the above checks pass
-        return '127.0.0.1';
+        
+        return null;
     }
-
 
     /**
      * Check if the client accepts a given content type.
@@ -360,6 +391,59 @@ class Request
             $this->rawBody = file_get_contents('php://input');
         }
         return $this->rawBody;
+    }
+
+    /**
+     * Validate input data against rules.
+     *
+     * @param array $rules Validation rules
+     * @return array
+     */
+    public function validate(array $rules): array
+    {
+        $errors = [];
+        
+        foreach ($rules as $field => $ruleSet) {
+            $rules = explode('|', $ruleSet);
+            $value = $this->input($field, null, false); // Get raw value for validation
+            
+            foreach ($rules as $rule) {
+                if ($error = $this->validateField($field, $value, $rule)) {
+                    $errors[$field] = $error;
+                    break;
+                }
+            }
+        }
+        
+        return $errors;
+    }
+
+    /**
+     * Validate a single field against a rule.
+     *
+     * @param string $field Field name
+     * @param mixed $value Field value
+     * @param string $rule Validation rule
+     * @return string|null
+     */
+    private function validateField(string $field, mixed $value, string $rule): ?string
+    {
+        if ($rule === 'required' && empty($value)) {
+            return "The {$field} field is required.";
+        }
+
+        if ($rule === 'email' && !filter_var($value, FILTER_VALIDATE_EMAIL)) {
+            return "The {$field} must be a valid email address.";
+        }
+
+        if (str_starts_with($rule, 'min:')) {
+            $min = (int) substr($rule, 4);
+            if (strlen((string)$value) < $min) {
+                return "The {$field} must be at least {$min} characters.";
+            }
+        }
+
+        return null;
     }
 
     /**
