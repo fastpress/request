@@ -255,13 +255,18 @@ class Request
     {
         $method = $this->server['REQUEST_METHOD'] ?? 'GET';
 
-        // Check for method override (PUT/DELETE/PATCH via POST)
+        // Check for method override (PUT/DELETE/PATCH via POST only)
         if ($method === 'POST') {
-            $override = $this->header('X-HTTP-Method-Override')
+            $override = strtoupper(
+                $this->header('X-HTTP-Method-Override')
                 ?? $this->post('_method')
-                ?? $method;
+                ?? $method
+            );
 
-            return strtoupper($override);
+            // Only allow safe overrides
+            if (in_array($override, ['PUT', 'DELETE', 'PATCH'], true)) {
+                return $override;
+            }
         }
 
         return $method;
@@ -274,20 +279,7 @@ class Request
      */
     public function getIp(): ?string
     {
-        $keys = ['HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'];
-
-        foreach ($keys as $key) {
-            $ip = $this->server[$key] ?? null;
-            if ($ip && filter_var(
-                $ip,
-                FILTER_VALIDATE_IP,
-                FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-            )) {
-                return $ip;
-            }
-        }
-
-        return null;
+        return $this->server['REMOTE_ADDR'] ?? null;
     }
 
     /**
