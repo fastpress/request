@@ -27,6 +27,11 @@ class Request
     private array $files;
 
     /**
+     * @var array Cookies
+     */
+    private array $cookies;
+
+    /**
      * @var array|null HTTP headers
      */
     private ?array $headers = null;
@@ -57,17 +62,20 @@ class Request
      * @param array|null $get Query parameters
      * @param array|null $post POST data
      * @param array|null $server Server information
+     * @param array|null $cookies Cookies
      * @param array|null $files Uploaded files
      */
     public function __construct(
         ?array $get = null,
         ?array $post = null,
         ?array $server = null,
+        ?array $cookies = null,
         ?array $files = null
     ) {
         $this->get = $get ?? $_GET;
         $this->post = $post ?? $_POST;
         $this->server = $server ?? $_SERVER;
+        $this->cookies = $cookies ?? $_COOKIE;
         $this->files = $files ?? $_FILES;
     }
 
@@ -91,7 +99,6 @@ class Request
      */
     private function parseHeaders(): array
     {
-        // Use getallheaders() if available
         if (function_exists('getallheaders')) {
             return getallheaders();
         }
@@ -103,49 +110,16 @@ class Request
                 $headers[$header] = $value;
             }
         }
-        
-        return $headers;
-    }
 
-    /**
-     * Check if a cookie with the given name exists.
-     *
-     * @param string $name Cookie name
-     * @return bool
-     */
-    public function hasCookie(string $name): bool
-    {
-        return isset($_COOKIE[$name]);
-    }
-
-    /**
-     * Validate CSRF token.
-     *
-     * @return bool
-     * @throws \RuntimeException If CSRF token validation fails
-     */
-    public function validateCsrf(): bool
-    {
-        // Only validate for non-GET requests
-        if (!$this->isGet()) {
-            $token = $this->header('X-CSRF-TOKEN') ?? $this->post('_token');
-            if (!$token || !hash_equals(session()->get('_token'), $token)) {
-                throw new \RuntimeException('CSRF token validation failed');
-            }
+        // Content-Type and Content-Length are not prefixed with HTTP_
+        if (isset($this->server['CONTENT_TYPE'])) {
+            $headers['Content-Type'] = $this->server['CONTENT_TYPE'];
         }
-        return true;
-    }
+        if (isset($this->server['CONTENT_LENGTH'])) {
+            $headers['Content-Length'] = $this->server['CONTENT_LENGTH'];
+        }
 
-    /**
-     * Generate CSRF token.
-     *
-     * @return string
-     */
-    public function generateCsrfToken(): string
-    {
-        $token = bin2hex(random_bytes(32));
-        session()->set('_token', $token);
-        return $token;
+        return $headers;
     }
 
     /**
@@ -165,30 +139,6 @@ class Request
         };
 
         return $sanitize ? $this->sanitize($value) : $value;
-    }
-
-    /**
-     * Is Ajax request.
-     */
-    public function isAjax(): bool {
-        return $this->header('X-Requested-With') === 'XMLHttpRequest';
-    }
-
-    /**
-     * Get the request URI.
-     * 
-     */
-    public function getScheme(): string
-    {
-        return $this->server['REQUEST_SCHEME'] ?? 'http';
-    }
-
-    /**
-     * Get Host.
-     */
-    public function getHost(): string 
-    {
-        return $this->server['HTTP_HOST'] ?? $this->server['SERVER_NAME'];
     }
 
     /**
@@ -217,7 +167,7 @@ class Request
     public function file(string $key): ?array
     {
         $file = $this->files[$key] ?? null;
-        
+
         if (!$file) {
             return null;
         }
@@ -248,8 +198,31 @@ class Request
      */
     public function hasFile(string $key): bool
     {
-        return isset($this->files[$key]) && 
+        return isset($this->files[$key]) &&
                $this->files[$key]['error'] === UPLOAD_ERR_OK;
+    }
+
+    /**
+     * Check if a cookie exists.
+     *
+     * @param string $key Cookie key
+     * @return bool
+     */
+    public function hasCookie(string $key): bool
+    {
+        return isset($this->cookies[$key]);
+    }
+
+    /**
+     * Get a cookie value.
+     *
+     * @param string $key Cookie key
+     * @param mixed $default Default value
+     * @return mixed
+     */
+    public function cookie(string $key, mixed $default = null): mixed
+    {
+        return $this->cookies[$key] ?? $default;
     }
 
     /**
@@ -264,6 +237,16 @@ class Request
     }
 
     /**
+     * Check if the request is an AJAX request.
+     *
+     * @return bool
+     */
+    public function isAjax(): bool
+    {
+        return $this->header('X-Requested-With') === 'XMLHttpRequest';
+    }
+
+    /**
      * Get the HTTP method.
      *
      * @return string
@@ -271,16 +254,16 @@ class Request
     public function getMethod(): string
     {
         $method = $this->server['REQUEST_METHOD'] ?? 'GET';
-        
-        // Check for method override
+
+        // Check for method override (PUT/DELETE/PATCH via POST)
         if ($method === 'POST') {
-            $override = $this->header('X-HTTP-Method-Override') 
+            $override = $this->header('X-HTTP-Method-Override')
                 ?? $this->post('_method')
                 ?? $method;
-            
+
             return strtoupper($override);
         }
-        
+
         return $method;
     }
 
@@ -292,7 +275,7 @@ class Request
     public function getIp(): ?string
     {
         $keys = ['HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'];
-        
+
         foreach ($keys as $key) {
             $ip = $this->server[$key] ?? null;
             if ($ip && filter_var(
@@ -303,7 +286,85 @@ class Request
                 return $ip;
             }
         }
-        
+
+        return null;
+    }
+
+    /**
+     * Get the request URI.
+     *
+     * @return string
+     */
+    public function getUri(): string
+    {
+        return $this->server['REQUEST_URI'] ?? '/';
+    }
+
+    /**
+     * Get the request path (without query string).
+     *
+     * @return string
+     */
+    public function getPath(): string
+    {
+        return parse_url($this->server['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
+    }
+
+    /**
+     * Get the query string.
+     *
+     * @return string
+     */
+    public function getQueryString(): string
+    {
+        return $this->server['QUERY_STRING'] ?? '';
+    }
+
+    /**
+     * Get the full URL including scheme, host, and URI.
+     *
+     * @return string
+     */
+    public function getFullUrl(): string
+    {
+        $scheme = (!empty($this->server['HTTPS']) && $this->server['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = $this->server['HTTP_HOST'] ?? $this->server['SERVER_NAME'] ?? 'localhost';
+        $uri = $this->server['REQUEST_URI'] ?? '/';
+
+        return $scheme . '://' . $host . $uri;
+    }
+
+    /**
+     * Get the request scheme (http or https).
+     *
+     * @return string
+     */
+    public function getScheme(): string
+    {
+        return (!empty($this->server['HTTPS']) && $this->server['HTTPS'] !== 'off') ? 'https' : 'http';
+    }
+
+    /**
+     * Get the host.
+     *
+     * @return string
+     */
+    public function getHost(): string
+    {
+        return $this->server['HTTP_HOST'] ?? $this->server['SERVER_NAME'] ?? 'localhost';
+    }
+
+    /**
+     * Get the bearer token from the Authorization header.
+     *
+     * @return string|null
+     */
+    public function bearerToken(): ?string
+    {
+        $header = $this->header('Authorization', '');
+        if (str_starts_with($header, 'Bearer ')) {
+            return substr($header, 7);
+        }
         return null;
     }
 
@@ -402,19 +463,19 @@ class Request
     public function validate(array $rules): array
     {
         $errors = [];
-        
+
         foreach ($rules as $field => $ruleSet) {
-            $rules = explode('|', $ruleSet);
-            $value = $this->input($field, null, false); // Get raw value for validation
-            
-            foreach ($rules as $rule) {
+            $fieldRules = explode('|', $ruleSet);
+            $value = $this->input($field, null, false);
+
+            foreach ($fieldRules as $rule) {
                 if ($error = $this->validateField($field, $value, $rule)) {
                     $errors[$field] = $error;
                     break;
                 }
             }
         }
-        
+
         return $errors;
     }
 
@@ -443,6 +504,13 @@ class Request
             }
         }
 
+        if (str_starts_with($rule, 'max:')) {
+            $max = (int) substr($rule, 4);
+            if (strlen((string)$value) > $max) {
+                return "The {$field} must not exceed {$max} characters.";
+            }
+        }
+
         return null;
     }
 
@@ -454,26 +522,6 @@ class Request
     public function setUrlParams(array $params): void
     {
         $this->urlParams = $params;
-    }
-
-    /**
-     * Get a query parameter value.
-     *
-     * @param string $key Query parameter key
-     * @param mixed $default Default value
-     * @return mixed
-     */
-    public function getQuery(string $key, mixed $default = null): mixed
-    {
-        $queryString = parse_url($this->server['REQUEST_URI'], PHP_URL_QUERY);
-        
-        // Check if query string exists before parsing
-        if ($queryString !== null) {
-            parse_str($queryString, $queryParams);
-            return $queryParams[$key] ?? $default;
-        }
-
-        return $default;
     }
 
     /**
@@ -520,5 +568,35 @@ class Request
     public function isPost(): bool
     {
         return $this->getMethod() === 'POST';
+    }
+
+    /**
+     * Check if the request method is PUT.
+     *
+     * @return bool
+     */
+    public function isPut(): bool
+    {
+        return $this->getMethod() === 'PUT';
+    }
+
+    /**
+     * Check if the request method is DELETE.
+     *
+     * @return bool
+     */
+    public function isDelete(): bool
+    {
+        return $this->getMethod() === 'DELETE';
+    }
+
+    /**
+     * Check if the request method is PATCH.
+     *
+     * @return bool
+     */
+    public function isPatch(): bool
+    {
+        return $this->getMethod() === 'PATCH';
     }
 }
